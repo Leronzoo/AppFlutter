@@ -4,9 +4,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'models/beacon_device.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 
 class BLEService extends ChangeNotifier {
   final flutterReactiveBle = FlutterReactiveBle();
+  final FlutterTts _flutterTts = FlutterTts();
+  String? _lastSpokenBeaconId;
+  DateTime _lastSpokenTime = DateTime.fromMillisecondsSinceEpoch(0);
+  Duration _ttsDelay = Duration(seconds: 5); // Delay entre falas
 
   static const String targetServiceUuid = "12345678-1234-1234-1234-123456789abc";
   static const String characteristicUuid = "87654321-4321-4321-4321-cba987654321";
@@ -107,14 +112,37 @@ bool _isMyBeacon(DiscoveredDevice device) {
     notifyListeners();
   }
 
-  void _updateClosestBeacon() {
-    if (_discoveredBeacons.isEmpty) {
-      _closestBeacon = null;
-    } else {
-      _discoveredBeacons.sort((a, b) => b.rssi.compareTo(a.rssi));
-      _closestBeacon = _discoveredBeacons.first;
+void _updateClosestBeacon() {
+  if (_discoveredBeacons.isEmpty) {
+    _closestBeacon = null;
+    notifyListeners();
+    return;
+  }
+
+  _discoveredBeacons.sort((a, b) => b.rssi.compareTo(a.rssi));
+  _closestBeacon = _discoveredBeacons.first;
+
+  // === INÍCIO DO TTS ===
+  if (_closestBeacon != null && _closestBeacon!.id != _lastSpokenBeaconId) {
+    final now = DateTime.now();
+    if (now.difference(_lastSpokenTime) > _ttsDelay) {
+      _lastSpokenBeaconId = _closestBeacon!.id;
+      _lastSpokenTime = now;
+
+      final name = _closestBeacon!.name.isNotEmpty
+          ? _closestBeacon!.name
+          : "dispositivo sem nome";
+
+      _flutterTts.setLanguage("pt-BR");
+      _flutterTts.setSpeechRate(0.9);
+      _flutterTts.speak("Beacon mais próximo: $name");
     }
   }
+  // === FIM DO TTS ===
+
+  notifyListeners();
+}
+
 
   void _cleanOldBeacons() {
     final threshold = DateTime.now().subtract(const Duration(seconds: 30));

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../ble_service.dart';
 import '../models/beacon_device.dart';
 import 'dart:convert';
+import 'package:flutter_tts/flutter_tts.dart';
 
 class BeaconScannerScreen extends StatefulWidget {
   const BeaconScannerScreen({Key? key}) : super(key: key);
@@ -12,6 +13,8 @@ class BeaconScannerScreen extends StatefulWidget {
 }
 
 class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
+  final FlutterTts _flutterTts = FlutterTts();
+
   @override
   void initState() {
     super.initState();
@@ -24,6 +27,15 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
   void dispose() {
     context.read<BLEService>().stopScanning();
     super.dispose();
+  }
+
+  Future<void> _falarTeste() async {
+    await _flutterTts.setLanguage("pt-BR");
+    await _flutterTts.setSpeechRate(0.9);
+    await _flutterTts.setVolume(1.0);
+    await _flutterTts.setPitch(1.0);
+    await _flutterTts.awaitSpeakCompletion(true);
+    await _flutterTts.speak("Teste de voz funcionando");
   }
 
   @override
@@ -54,6 +66,12 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
             children: [
               if (bleService.closestBeacon != null)
                 _buildClosestBeaconCard(bleService.closestBeacon!),
+
+              ElevatedButton(
+                onPressed: _falarTeste,
+                child: const Text("Testar Voz"),
+              ),
+
               Expanded(child: _buildBeaconList(bleService)),
               _buildStatusBar(bleService),
             ],
@@ -104,36 +122,36 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
     );
   }
 
- Widget _buildBeaconList(BLEService bleService) {
-  return ListView.builder(
-    itemCount: bleService.discoveredBeacons.length,
-    itemBuilder: (context, index) {
-      final beacon = bleService.discoveredBeacons[index];
-      final isClosest = beacon.id == bleService.closestBeacon?.id;
+  Widget _buildBeaconList(BLEService bleService) {
+    return ListView.builder(
+      itemCount: bleService.discoveredBeacons.length,
+      itemBuilder: (context, index) {
+        final beacon = bleService.discoveredBeacons[index];
+        final isClosest = beacon.id == bleService.closestBeacon?.id;
 
-      return Card(
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        color: isClosest ? Colors.green[100] : null,
-        child: ListTile(
-          leading: Icon(Icons.bluetooth, color: isClosest ? Colors.green : Colors.blue),
-          title: Text(beacon.name),
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('ID: ${beacon.id.substring(0, 8)}...'),
-              Text('RSSI: ${beacon.rssi} dBm'),
-              Text('Distância: ~${beacon.distance.toStringAsFixed(2)} m'),
-              Text('Visto: ${_formatTime(beacon.lastSeen)}'),
-            ],
+        return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          color: isClosest ? Colors.green[100] : null,
+          child: ListTile(
+            leading: Icon(Icons.bluetooth, color: isClosest ? Colors.green : Colors.blue),
+            title: Text(beacon.name),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('ID: ${beacon.id.substring(0, 8)}...'),
+                Text('RSSI: ${beacon.rssi} dBm'),
+                Text('Distância: ~${beacon.distance.toStringAsFixed(2)} m'),
+                Text('Visto: ${_formatTime(beacon.lastSeen)}'),
+              ],
+            ),
+            trailing: isClosest ? const Icon(Icons.star, color: Colors.green) : null,
+            isThreeLine: true,
+            onTap: () => _connectAndReadData(beacon.id),
           ),
-          trailing: isClosest ? const Icon(Icons.star, color: Colors.green) : null,
-          isThreeLine: true,
-          onTap: () => _connectAndReadData(beacon.id),
-        ),
-      );
-    },
-  );
-}
+        );
+      },
+    );
+  }
 
   Widget _buildStatusBar(BLEService bleService) {
     return Container(
