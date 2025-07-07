@@ -2,14 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../ble_service.dart';
 import '../models/beacon_device.dart';
-import 'dart:convert';
 import 'package:flutter_tts/flutter_tts.dart';
 
 class BeaconScannerScreen extends StatefulWidget {
-  const BeaconScannerScreen({Key? key}) : super(key: key);
+  const BeaconScannerScreen({super.key});
 
   @override
-  _BeaconScannerScreenState createState() => _BeaconScannerScreenState();
+  State<BeaconScannerScreen> createState() => _BeaconScannerScreenState();
 }
 
 class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
@@ -66,12 +65,10 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
             children: [
               if (bleService.closestBeacon != null)
                 _buildClosestBeaconCard(bleService.closestBeacon!),
-
               ElevatedButton(
                 onPressed: _falarTeste,
                 child: const Text("Testar Voz"),
               ),
-
               Expanded(child: _buildBeaconList(bleService)),
               _buildStatusBar(bleService),
             ],
@@ -110,11 +107,6 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
                   Text('~${beacon.distance.toStringAsFixed(1)}m'),
                 ],
               ),
-              const SizedBox(height: 8),
-              ElevatedButton(
-                onPressed: () => _connectAndReadData(beacon.id),
-                child: const Text('Conectar e Ler Dados'),
-              ),
             ],
           ),
         ),
@@ -146,7 +138,6 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
             ),
             trailing: isClosest ? const Icon(Icons.star, color: Colors.green) : null,
             isThreeLine: true,
-            onTap: () => _connectAndReadData(beacon.id),
           ),
         );
       },
@@ -175,43 +166,5 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
 
   String _formatTime(DateTime dateTime) {
     return '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}:${dateTime.second.toString().padLeft(2, '0')}';
-  }
-
-  Future<void> _connectAndReadData(String deviceId) async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const AlertDialog(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('Conectando ao beacon...'),
-          ],
-        ),
-      ),
-    );
-
-    final data = await context.read<BLEService>().connectAndReadData(deviceId);
-    Navigator.of(context).pop();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Dados do Beacon'),
-        content: SingleChildScrollView(
-          child: Text(
-            data != null ? JsonEncoder.withIndent('  ').convert(data) : 'Falha ao ler dados do beacon',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Fechar'),
-          ),
-        ],
-      ),
-    );
   }
 }

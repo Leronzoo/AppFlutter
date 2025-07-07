@@ -3,28 +3,77 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'models/beacon_device.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'models/beacon_device.dart';
+
+const String servidorIp = "http://192.168.100.32"; // IP do servidor PHP
 
 class BLEService extends ChangeNotifier {
   final flutterReactiveBle = FlutterReactiveBle();
   final FlutterTts _flutterTts = FlutterTts();
-  String? _lastSpokenBeaconId;
-  DateTime _lastSpokenTime = DateTime.fromMillisecondsSinceEpoch(0);
-  Duration _ttsDelay = Duration(seconds: 5); // Delay entre falas
 
   static const String targetServiceUuid = "12345678-1234-1234-1234-123456789abc";
   static const String characteristicUuid = "87654321-4321-4321-4321-cba987654321";
 
+  final Duration _intervaloFala = const Duration(seconds: 10);
+  final Duration _intervaloCache = const Duration(hours: 1);
+
   final List<BeaconDevice> _discoveredBeacons = [];
-  BeaconDevice? _closestBeacon;
+  final Map<String, String> _respostas = {};
+  BeaconDevice? _maisProximo;
+
   bool _isScanning = false;
+  String? _ultimoFaladoId;
+  DateTime _ultimoFaladoTime = DateTime.fromMillisecondsSinceEpoch(0);
+
   StreamSubscription<DiscoveredDevice>? _scanSubscription;
   Timer? _cleanupTimer;
 
   List<BeaconDevice> get discoveredBeacons => _discoveredBeacons;
-  BeaconDevice? get closestBeacon => _closestBeacon;
+  BeaconDevice? get closestBeacon => _maisProximo;
   bool get isScanning => _isScanning;
+
+  BLEService() {
+    _carregarCache();
+  }
+
+  Future<void> _carregarCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    final dados = prefs.getString('beacon_cache');
+    final tempo = prefs.getString('beacon_cache_timestamp');
+    final agora = DateTime.now();
+    final ultima = tempo != null ? DateTime.tryParse(tempo) : null;
+
+    if (dados != null && ultima != null && agora.difference(ultima) < _intervaloCache) {
+      _respostas.addAll(Map<String, String>.from(jsonDecode(dados)));
+    } else {
+      await _atualizarDoServidor();
+    }
+  }
+
+  Future<void> _atualizarDoServidor() async {
+    try {
+      final response = await http.get(Uri.parse("$servidorIp/api/listar.php"));
+      if (response.statusCode == 200) {
+        final List jsonList = jsonDecode(response.body);
+        _respostas.clear();
+        for (final item in jsonList) {
+          final id = item['beacon_id'];
+          final resposta = item['resposta'];
+          if (id != null && resposta != null) {
+            _respostas[id.toString().toLowerCase()] = resposta.toString();
+          }
+        }
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('beacon_cache', jsonEncode(_respostas));
+        await prefs.setString('beacon_cache_timestamp', DateTime.now().toIso8601String());
+      }
+    } catch (_) {
+      // Se erro, mantém cache antigo
+    }
+  }
 
   Future<bool> requestPermissions() async {
     final statuses = await [
@@ -32,123 +81,91 @@ class BLEService extends ChangeNotifier {
       Permission.bluetoothConnect,
       Permission.location,
     ].request();
-
     return statuses.values.every((status) => status.isGranted);
   }
 
   Future<void> startScanning() async {
     if (_isScanning) return;
-
-    if (!await requestPermissions()) {
-      debugPrint("Permissões negadas");
-      return;
-    }
+    if (!await requestPermissions()) return;
 
     _discoveredBeacons.clear();
     _isScanning = true;
     notifyListeners();
 
     _scanSubscription = flutterReactiveBle
-        .scanForDevices(
-          withServices: [], // escaneia tudo, sem filtro direto
-          scanMode: ScanMode.lowLatency,
-        )
+        .scanForDevices(withServices: [], scanMode: ScanMode.lowLatency)
         .listen((device) {
-          debugPrint("${device.name} - ${device.id}");
-          if (_isMyBeacon(device)) {
-            _onDeviceDiscovered(device);
-          }
-        }, onError: (e) {
-          debugPrint("Erro no scan: $e");
-        });
+      if (_ehBeaconValido(device)) _processar(device);
+    });
 
     _cleanupTimer = Timer.periodic(
       const Duration(seconds: 30),
-      (_) => _cleanOldBeacons(),
+      (_) => _limparAntigos(),
     );
   }
 
-bool _isMyBeacon(DiscoveredDevice device) {
-  // Verifica se o nome do dispositivo contém "BEACON"
-  if (device.name.toUpperCase().contains("BEACON")) return true;
-
-  // Tenta verificar o manufacturerData, mas ignora se der erro
-  try {
-    final data = utf8.decode(device.manufacturerData);
-    return data.toUpperCase().contains("BEACON");
-  } catch (_) {
-    return false;
+  bool _ehBeaconValido(DiscoveredDevice device) {
+    if (device.name.toUpperCase().contains("BEACON")) return true;
+    try {
+      final data = utf8.decode(device.manufacturerData);
+      return data.toUpperCase().contains("BEACON");
+    } catch (_) {
+      return false;
+    }
   }
-}
 
-  void _onDeviceDiscovered(DiscoveredDevice device) {
-    final id = device.id;
-    final name = device.name.isNotEmpty ? device.name : "Beacon Desconhecido";
-    final distance = BeaconDevice.calculateDistance(device.rssi, -59);
-
+  void _processar(DiscoveredDevice device) {
     final beacon = BeaconDevice(
-      id: id,
-      name: name,
+      id: device.id,
+      name: device.name.isNotEmpty ? device.name : "Desconhecido",
       rssi: device.rssi,
       serviceUuid: targetServiceUuid,
       lastSeen: DateTime.now(),
-      distance: distance,
+      distance: BeaconDevice.calculateDistance(device.rssi, -59),
       data: {
         "manufacturerData": device.manufacturerData,
       },
     );
 
-    _updateBeaconList(beacon);
-  }
-
-  void _updateBeaconList(BeaconDevice beacon) {
     final index = _discoveredBeacons.indexWhere((b) => b.id == beacon.id);
     if (index != -1) {
       _discoveredBeacons[index] = beacon;
     } else {
       _discoveredBeacons.add(beacon);
     }
-    _updateClosestBeacon();
+
+    _atualizarMaisProximo();
     notifyListeners();
   }
 
-void _updateClosestBeacon() {
-  if (_discoveredBeacons.isEmpty) {
-    _closestBeacon = null;
-    notifyListeners();
-    return;
-  }
+  void _atualizarMaisProximo() {
+    if (_discoveredBeacons.isEmpty) {
+      _maisProximo = null;
+      return;
+    }
 
-  _discoveredBeacons.sort((a, b) => b.rssi.compareTo(a.rssi));
-  _closestBeacon = _discoveredBeacons.first;
+    _discoveredBeacons.sort((a, b) => b.rssi.compareTo(a.rssi));
+    _maisProximo = _discoveredBeacons.first;
 
-  // === INÍCIO DO TTS ===
-  if (_closestBeacon != null && _closestBeacon!.id != _lastSpokenBeaconId) {
-    final now = DateTime.now();
-    if (now.difference(_lastSpokenTime) > _ttsDelay) {
-      _lastSpokenBeaconId = _closestBeacon!.id;
-      _lastSpokenTime = now;
+    final agora = DateTime.now();
+    if (_maisProximo!.id != _ultimoFaladoId &&
+        agora.difference(_ultimoFaladoTime) > _intervaloFala) {
+      _ultimoFaladoId = _maisProximo!.id;
+      _ultimoFaladoTime = agora;
 
-      final name = _closestBeacon!.name.isNotEmpty
-          ? _closestBeacon!.name
-          : "dispositivo sem nome";
+      final idLower = _maisProximo!.id.toLowerCase();
+      final texto = _respostas[idLower] ?? "Beacon sem resposta definida";
 
       _flutterTts.setLanguage("pt-BR");
       _flutterTts.setSpeechRate(0.9);
-      _flutterTts.speak("Beacon mais próximo: $name");
+      _flutterTts.speak(texto);
     }
   }
-  // === FIM DO TTS ===
 
-  notifyListeners();
-}
-
-
-  void _cleanOldBeacons() {
-    final threshold = DateTime.now().subtract(const Duration(seconds: 30));
-    _discoveredBeacons.removeWhere((b) => b.lastSeen.isBefore(threshold));
-    _updateClosestBeacon();
-    notifyListeners();
+  void _limparAntigos() {
+    final limite = DateTime.now().subtract(const Duration(seconds: 30));
+    _discoveredBeacons.removeWhere((b) => b.lastSeen.isBefore(limite));
+    _atualizarMaisProximo();
   }
 
   Future<void> stopScanning() async {
@@ -157,36 +174,6 @@ void _updateClosestBeacon() {
     _cleanupTimer?.cancel();
     _isScanning = false;
     notifyListeners();
-  }
-
-  Future<Map<String, dynamic>?> connectAndReadData(String deviceId) async {
-    try {
-      final connection = flutterReactiveBle.connectToDevice(id: deviceId);
-      final completer = Completer<Map<String, dynamic>>();
-      late StreamSubscription<ConnectionStateUpdate> sub;
-
-      sub = connection.listen((connectionState) async {
-        if (connectionState.connectionState == DeviceConnectionState.connected) {
-          final characteristic = QualifiedCharacteristic(
-            deviceId: deviceId,
-            serviceId: Uuid.parse(targetServiceUuid),
-            characteristicId: Uuid.parse(characteristicUuid),
-          );
-
-          final value = await flutterReactiveBle.readCharacteristic(characteristic);
-          await sub.cancel();
-          completer.complete(json.decode(utf8.decode(value)) as Map<String, dynamic>);
-        }
-      }, onError: (e) async {
-        await sub.cancel();
-        completer.completeError(e);
-      });
-
-      return await completer.future;
-    } catch (e) {
-      debugPrint("Erro ao conectar/ler dados: $e");
-      return null;
-    }
   }
 
   @override

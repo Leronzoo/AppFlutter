@@ -3,16 +3,19 @@
     <!-- Permissões BLE necessárias -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
-    
+
     <!-- Android 12+ permissions -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
-    
+
     <!-- Location permissions for BLE scanning -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    
+
+    <!--  Permissão de internet (FUNDAMENTAL) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- BLE feature requirement -->
     <uses-feature 
         android:name="android.hardware.bluetooth_le" 
@@ -21,8 +24,8 @@
     <application
         android:label="BLE Beacon Scanner"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
-        
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true"> 
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -31,17 +34,17 @@
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
-            
+
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
-                
+
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
