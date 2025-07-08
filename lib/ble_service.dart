@@ -8,7 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'models/beacon_device.dart';
 
-const String servidorIp = "http://192.168.100.32"; // IP do servidor PHP
+const String servidorIp = "http://172.22.170.20"; // IP do servidor PHP
 
 class BLEService extends ChangeNotifier {
   final flutterReactiveBle = FlutterReactiveBle();
@@ -17,7 +17,7 @@ class BLEService extends ChangeNotifier {
   static const String targetServiceUuid = "12345678-1234-1234-1234-123456789abc";
   static const String characteristicUuid = "87654321-4321-4321-4321-cba987654321";
 
-  final Duration _intervaloFala = const Duration(seconds: 10);
+  final Duration _intervaloFala = const Duration(seconds: 5);
   final Duration _intervaloCache = const Duration(hours: 1);
 
   final List<BeaconDevice> _discoveredBeacons = [];
@@ -138,29 +138,45 @@ class BLEService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _atualizarMaisProximo() {
-    if (_discoveredBeacons.isEmpty) {
-      _maisProximo = null;
-      return;
-    }
-
-    _discoveredBeacons.sort((a, b) => b.rssi.compareTo(a.rssi));
-    _maisProximo = _discoveredBeacons.first;
-
-    final agora = DateTime.now();
-    if (_maisProximo!.id != _ultimoFaladoId &&
-        agora.difference(_ultimoFaladoTime) > _intervaloFala) {
-      _ultimoFaladoId = _maisProximo!.id;
-      _ultimoFaladoTime = agora;
-
-      final idLower = _maisProximo!.id.toLowerCase();
-      final texto = _respostas[idLower] ?? "Beacon sem resposta definida";
-
-      _flutterTts.setLanguage("pt-BR");
-      _flutterTts.setSpeechRate(0.9);
-      _flutterTts.speak(texto);
-    }
+void _atualizarMaisProximo() {
+  if (_discoveredBeacons.isEmpty) {
+    _maisProximo = null;
+    return;
   }
+
+  _discoveredBeacons.sort((a, b) => b.rssi.compareTo(a.rssi));
+  _maisProximo = _discoveredBeacons.first;
+
+  final agora = DateTime.now();
+
+  // Continua apenas se mudou o beacon mais próximo e passou o tempo mínimo
+  if (_maisProximo!.id != _ultimoFaladoId &&
+      agora.difference(_ultimoFaladoTime) > _intervaloFala) {
+    _ultimoFaladoId = _maisProximo!.id;
+    _ultimoFaladoTime = agora;
+
+    // Normaliza o ID detectado (remove dois pontos e coloca minúsculo)
+    final idNormalizado = _maisProximo!.id.toLowerCase().replaceAll(":", "");
+
+    // Procura uma chave no Map que bata com esse ID (também normalizando)
+    final matchedKey = _respostas.keys.firstWhere(
+      (key) => key.toLowerCase().replaceAll(":", "") == idNormalizado,
+      orElse: () => '',
+    );
+
+    final texto = matchedKey.isNotEmpty
+        ? _respostas[matchedKey]!
+        : "Beacon sem resposta definida";
+
+    print("Beacon detectado: ${_maisProximo!.id}");
+    print("Texto falado: $texto");
+
+    _flutterTts.setLanguage("pt-BR");
+    _flutterTts.setSpeechRate(0.9);
+    _flutterTts.speak(texto);
+  }
+}
+
 
   void _limparAntigos() {
     final limite = DateTime.now().subtract(const Duration(seconds: 30));
